@@ -1,19 +1,35 @@
+import sys
+import os
 import matplotlib.pyplot as plt
 import pandas as pd
 from scapy.all import rdpcap, IP, IPv6, TCP
 
+DEFAULT_HISTOGRAM_BINS = 20
 
 def process_pcap(pcap_file):
-    packets = rdpcap(pcap_file)
-    rows = []
-    prev_time = None
+    """
+    Reads packets from the pcap file, collects various IP/TCP fields,
+    and returns a list of dictionaries for each packet.
+    """
+    if not os.path.isfile(pcap_file):
+        print(f"Error: File '{pcap_file}' does not exist.")
+        sys.exit(1)
 
-    for pkt in packets:
+    try:
+        packets = rdpcap(pcap_file)
+    except Exception as e:
+        print(f"Error reading pcap file '{pcap_file}': {e}")
+        sys.exit(1)
+
+    rows = []
+    previous_timestamp = None
+
+    for packet in packets:
         row = {}
 
-        # בדיקה אם זו חבילת IPv4
-        if IP in pkt:
-            ip_layer = pkt[IP]
+        # Check if this is an IPv4 packet
+        if IP in packet:
+            ip_layer = packet[IP]
             row['ip_version'] = 4
             row['ip_src'] = ip_layer.src
             row['ip_dst'] = ip_layer.dst
@@ -27,19 +43,16 @@ def process_pcap(pcap_file):
             row['ip_proto'] = ip_layer.proto
             row['ip_chksum'] = ip_layer.chksum
 
-        # בדיקה אם זו חבילת IPv6
-        elif IPv6 in pkt:
-            ipv6_layer = pkt[IPv6]
+        # Check if this is an IPv6 packet
+        elif IPv6 in packet:
+            ipv6_layer = packet[IPv6]
             row['ip_version'] = 6
             row['ip_src'] = ipv6_layer.src
             row['ip_dst'] = ipv6_layer.dst
-            # ב-IPv6 אין את כל השדות כמו ב-IPv4,
-            # אז אפשר למלא רק מה שרלוונטי:
             row['ip_tos'] = ipv6_layer.tc  # traffic class
             row['ip_len'] = ipv6_layer.plen  # payload length
             row['ip_proto'] = ipv6_layer.nh  # next header
             row['ip_hlim'] = ipv6_layer.hlim  # hop limit
-            # שדות שאינם רלוונטיים / לא קיימים ב-IPv6 אפשר להציב None
             row['ip_ihl'] = None
             row['ip_id'] = None
             row['ip_flags'] = None
@@ -47,7 +60,7 @@ def process_pcap(pcap_file):
             row['ip_ttl'] = None
             row['ip_chksum'] = None
         else:
-            # אם לא IP ולא IPv6:
+            # If neither IPv4 nor IPv6:
             row['ip_version'] = None
             row['ip_src'] = None
             row['ip_dst'] = None
@@ -61,9 +74,9 @@ def process_pcap(pcap_file):
             row['ip_proto'] = None
             row['ip_chksum'] = None
 
-        # --- TCP ---
-        if TCP in pkt:
-            tcp_layer = pkt[TCP]
+        # TCP layer fields
+        if TCP in packet:
+            tcp_layer = packet[TCP]
             row['tcp_sport'] = tcp_layer.sport
             row['tcp_dport'] = tcp_layer.dport
             row['tcp_seq'] = tcp_layer.seq
@@ -86,22 +99,25 @@ def process_pcap(pcap_file):
             row['tcp_chksum'] = None
             row['tcp_urgptr'] = None
 
-        # --- גודל המנה ---
-        row['packet_size'] = len(pkt)
+        # Packet size
+        row['packet_size'] = len(packet)
 
-        # --- זמן בין מנות ---
-        if prev_time is None:
+        # Inter-packet time
+        if previous_timestamp is None:
             row['inter_arrival'] = 0
         else:
-            row['inter_arrival'] = pkt.time - prev_time
-        prev_time = pkt.time
+            row['inter_arrival'] = packet.time - previous_timestamp
+        previous_timestamp = packet.time
 
-        # Mפלח זרימה (Flow Key) ל-TCP עבור IPv4/IPv6
-        if TCP in pkt:
-            if IP in pkt:
-                row['flow_key'] = (pkt[IP].src, pkt[IP].dst, pkt[TCP].sport, pkt[TCP].dport)
-            elif IPv6 in pkt:
-                row['flow_key'] = (pkt[IPv6].src, pkt[IPv6].dst, pkt[TCP].sport, pkt[TCP].dport)
+        # Flow key for TCP in IPv4/IPv6
+        if TCP in packet:
+            if row['ip_version'] == 4 or row['ip_version'] == 6:
+                row['flow_key'] = (
+                    row['ip_src'],
+                    row['ip_dst'],
+                    row['tcp_sport'],
+                    row['tcp_dport']
+                )
             else:
                 row['flow_key'] = None
         else:
@@ -109,12 +125,11 @@ def process_pcap(pcap_file):
 
         rows.append(row)
 
-    # חישוב גודל זרימה עבור TCP
+    # Calculate TCP flow sizes
     flow_counts = {}
     for row in rows:
-        flow_key = row['flow_key']
-        if flow_key is not None:
-            flow_counts[flow_key] = flow_counts.get(flow_key, 0) + 1
+        if row['flow_key'] is not None:
+            flow_counts[row['flow_key']] = flow_counts.get(row['flow_key'], 0) + 1
 
     for row in rows:
         if row['flow_key'] is not None:
@@ -124,8 +139,11 @@ def process_pcap(pcap_file):
 
     return rows
 
-
 def plot_distribution(rows, column_name):
+    """
+    Plots a histogram or bar chart of the specified column_name from rows.
+    For 'ip_version', it plots a simple bar chart for IPv4 vs IPv6.
+    """
     df = pd.DataFrame(rows)
 
     if column_name not in df.columns:
@@ -134,19 +152,19 @@ def plot_distribution(rows, column_name):
 
     data = df[column_name].dropna()
     if data.empty:
-        print(f"No data in column '{column_name}'.")
+        print(f"No data found in column '{column_name}'.")
         return
 
-    # טיפול מיוחד בעמודת ip_version
+    # Special handling for 'ip_version'
     if column_name == 'ip_version':
-        # נתייחס רק לערכים 4 ו-6
         data = data[data.isin([4, 6])]
         if data.empty:
-            print("No IPv4/IPv6 found.")
+            print("No IPv4/IPv6 packets found.")
             return
-
         counts = data.value_counts()
-        plt.bar(counts.index.astype(str), counts.values)
+
+        plt.figure(figsize=(10, 6))
+        plt.bar(counts.index.astype(str), counts.values, edgecolor='black')
         plt.title("Distribution of IP Version (4 vs. 6)")
         plt.xlabel("IP Version")
         plt.ylabel("Count")
@@ -154,26 +172,41 @@ def plot_distribution(rows, column_name):
         plt.show()
         return
 
-    # עבור עמודות אחרות (או אם תרצו טיפול כללי)
+    # For numeric columns
     if pd.api.types.is_numeric_dtype(data):
-        plt.hist(data, bins=20)
+        plt.figure(figsize=(10, 6))
+        plt.hist(data, bins=DEFAULT_HISTOGRAM_BINS, edgecolor='black')
         plt.title(f"Distribution of {column_name}")
         plt.xlabel(column_name)
         plt.ylabel("Frequency")
+        plt.tight_layout()
+        plt.show()
     else:
-        counts = data.value_counts()
-        plt.bar(counts.index.astype(str), counts.values)
+        # For categorical data
+        value_counts = data.value_counts()
+        if value_counts.empty:
+            print(f"No categorical data found for column '{column_name}'.")
+            return
+
+        plt.figure(figsize=(10, 6))
+        plt.bar(value_counts.index.astype(str), value_counts.values, edgecolor='black')
         plt.title(f"Distribution of {column_name}")
         plt.xlabel(column_name)
         plt.ylabel("Count")
-    plt.tight_layout()
-    plt.show()
+        plt.tight_layout()
+        plt.show()
 
+def main():
+    """
+    Usage: python ip_distribution.py <pcap_file>
+    """
+    if len(sys.argv) != 2:
+        print("Usage: python ip_distribution.py <pcap_file>")
+        sys.exit(1)
+
+    pcap_file = sys.argv[1]
+    row_data = process_pcap(pcap_file)
+    plot_distribution(row_data, 'ip_version')
 
 if __name__ == "__main__":
-
-    pcap_file = r"C:\Users\jhon\Downloads\Telegram Desktop\googleMEETS.pcap"
-    rows = process_pcap(pcap_file)
-
-    # כעת, plot_distribution אמור להראות התפלגות 4 מול 6 אם יש IPv4/IPv6
-    plot_distribution(rows, 'ip_version')
+    main()

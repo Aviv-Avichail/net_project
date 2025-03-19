@@ -1,83 +1,76 @@
+import sys
+import os
 import matplotlib.pyplot as plt
-import scapy
-from pyshark.packet import packet
-from scapy.all import rdpcap, IP, IPv6
 import numpy as np
-from scapy.layers.inet import IP
-from scapy.layers.inet6 import IPv6
+from scapy.all import rdpcap
 
-from collections import Counter
-
+MIN_REQUIRED_PACKETS = 2
+PERCENTILE_THRESHOLD = 0.99
+HISTOGRAM_BINS = 30
 
 def plot_inter_arrivals(pcap_file):
-
-
     """
-    פונקציה שמקבלת קובץ pcap/pcapng (נתיב מלא),
-    מחשבת את ה-Inter-Arrival Times בין מנות עוקבות ומציגה היסטוגרמה.
-    בלי שימוש ב-np.percentile, אלא חישוב ידני של האחוזון.
+    Reads a pcap/pcapng file, calculates inter-arrival times between consecutive packets,
+    and displays a histogram (up to the 99th percentile).
     """
-
-    packets = rdpcap(pcap_file)
-
-    # אם פחות מ-2 חבילות, לא ניתן לחשב הפרשי זמנים
-    if len(packets) < 2:
-        print("אין מספיק חבילות (פחות מ-2) לחישוב Inter-Arrival Times.")
+    if not os.path.isfile(pcap_file):
+        print(f"Error: File '{pcap_file}' does not exist.")
         return
 
-    # רשימת הפרשי הזמנים בין כל שתי מנות עוקבות
-    inter_arrivals = []
+    try:
+        packets = rdpcap(pcap_file)
+    except Exception as e:
+        print(f"Error reading pcap file '{pcap_file}': {e}")
+        return
+
+    # If there are not enough packets, we cannot compute inter-arrival times.
+    if len(packets) < MIN_REQUIRED_PACKETS:
+        print(f"Not enough packets (less than {MIN_REQUIRED_PACKETS}) to compute inter-arrival times.")
+        return
+
+    # Calculate time deltas between consecutive packets.
+    inter_arrival_times = []
     for i in range(1, len(packets)):
-        delta = packets[i].time - packets[i-1].time
-        inter_arrivals.append(delta)
+        delta_time = packets[i].time - packets[i - 1].time
+        inter_arrival_times.append(delta_time)
 
-    # הסרת ערכים שליליים
-    inter_arrivals = [t for t in inter_arrivals if t >= 0]
-
-    if not inter_arrivals:
-        print("לא נמצאו ערכי Inter-Arrival חוקיים (כולם היו שליליים).")
+    # Remove any negative values (edge case).
+    inter_arrival_times = [t for t in inter_arrival_times if t >= 0]
+    if not inter_arrival_times:
+        print("No valid inter-arrival times found (all were negative).")
         return
 
-    # הפיכת הרשימה ל-numpy array לצורך נוחות, לא חובה.
-    arr = np.array(inter_arrivals)
+    inter_arrival_array = np.array(inter_arrival_times)
+    sorted_times = np.sort(inter_arrival_array)
 
-    # חשב ידנית את האחוזון 99:
-    arr_sorted = np.sort(arr)
-    idx_99 = int(len(arr_sorted) * 0.99)  # מיקום שמייצג את ה-99%
-    cutoff_99 = arr_sorted[idx_99]       # ערך שממנו ומעלה נחתוך
+    # Find the cutoff for the PERCENTILE_THRESHOLD.
+    cutoff_index = int(len(sorted_times) * PERCENTILE_THRESHOLD)
+    cutoff_value = sorted_times[cutoff_index]
 
-    # מסננים מהמערך את הערכים הגדולים יותר מהcutoff
-    arr_filtered = arr[arr <= cutoff_99]
-
-    if arr_filtered.size == 0:
-        print("כל ערכי ה-Inter-Arrival היו מעל האחוזון ה-99, אין מה להציג.")
+    # Filter out values greater than the cutoff.
+    filtered_times = inter_arrival_array[inter_arrival_array <= cutoff_value]
+    if filtered_times.size == 0:
+        print(f"All inter-arrival values were above the {PERCENTILE_THRESHOLD * 100}th percentile.")
         return
 
-    # ציור היסטוגרמה עם הערכים המסוננים
-    plt.hist(arr_filtered, bins=30)
-    plt.title("Distribution of Inter-Arrival Times (<= 99th percentile)")
+    plt.figure(figsize=(10, 6))
+    plt.hist(filtered_times, bins=HISTOGRAM_BINS, edgecolor='black')
+    plt.title(f"Distribution of Inter-Arrival Times (<= {int(PERCENTILE_THRESHOLD * 100)}th percentile)")
     plt.xlabel("Inter-Arrival Time (seconds)")
     plt.ylabel("Frequency")
     plt.tight_layout()
     plt.show()
 
+def main():
+    """
+    Usage: python plot_inter_arrivals.py <pcap_file>
+    """
+    if len(sys.argv) != 2:
+        print("Usage: python plot_inter_arrivals.py <pcap_file>")
+        sys.exit(1)
 
-import matplotlib.pyplot as plt
-import pandas as pd
-from scapy.all import rdpcap, IP, IPv6, TCP
-
-import pyshark
-import matplotlib.pyplot as plt
-from collections import Counter
-
-
-
-
-
-# Example usage:
-# plot_tls_versions('path_to_your_file.pcap')
-
-if __name__ == "__main__":
-    pcap_file= r"C:\Users\jhon\Downloads\Telegram Desktop\googleMEETS.pcap"
+    pcap_file = sys.argv[1]
     plot_inter_arrivals(pcap_file)
 
+if __name__ == "__main__":
+    main()

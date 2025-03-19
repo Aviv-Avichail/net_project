@@ -1,50 +1,65 @@
+import sys
+import os
 import matplotlib.pyplot as plt
 from scapy.all import rdpcap, IP, IPv6
 from collections import Counter
 
+TOP_N_ADDRESSES = 5
 
 def plot_top5_destinations(pcap_file_path):
     """
-    This function takes a path to a pcap/pcapng file,
-    extracts both IPv4 and IPv6 packets, collects destination addresses,
-    and displays a graph of the top 5 most frequent destination addresses.
+    Reads a pcap/pcapng file, extracts both IPv4 and IPv6 destination addresses,
+    and displays a bar chart of the top N (TOP_N_ADDRESSES) most frequent destinations.
     """
-    # Read packets from the file
-    packets = rdpcap(pcap_file_path)
-    dest_addresses = []
+    if not os.path.isfile(pcap_file_path):
+        print(f"Error: File '{pcap_file_path}' does not exist.")
+        return
 
-    # Process each packet and check for IPv4 or IPv6 layer
-    for pkt in packets:
-        if IP in pkt:
-            dest_addresses.append(pkt[IP].dst)
-        elif IPv6 in pkt:
-            dest_addresses.append(pkt[IPv6].dst)
+    try:
+        packets = rdpcap(pcap_file_path)
+    except Exception as e:
+        print(f"Error reading pcap file '{pcap_file_path}': {e}")
+        return
 
-    if not dest_addresses:
+    destination_addresses = []
+    for packet in packets:
+        if IP in packet:
+            destination_addresses.append(packet[IP].dst)
+        elif IPv6 in packet:
+            destination_addresses.append(packet[IPv6].dst)
+
+    if not destination_addresses:
         print("No IPv4 or IPv6 packets found in the file.")
         return
 
-    # Count frequency of destination addresses
-    counts = Counter(dest_addresses)
-    top5 = counts.most_common(5)
+    address_counter = Counter(destination_addresses)
+    top_addresses = address_counter.most_common(TOP_N_ADDRESSES)
+    if not top_addresses:
+        print("No addresses to plot.")
+        return
 
-    addresses, freqs = zip(*top5)
+    addresses, frequencies = zip(*top_addresses)
 
-    # Plotting the bar chart for the top 5 destination addresses
     plt.figure(figsize=(10, 6))
-    plt.bar(addresses, freqs)
-    plt.title("Top 5 Destination IP Addresses")
+    # Default color for bars is 'C0' (blue)
+    plt.bar(addresses, frequencies, edgecolor='black')
+    plt.title(f"Top {TOP_N_ADDRESSES} Destination IP Addresses")
     plt.xlabel("Destination IP Address")
     plt.ylabel("Frequency")
-    # Rotate x-axis labels for better readability
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
     plt.show()
 
+def main():
+    """
+    Usage: python top5_ip.py <pcap_file>
+    """
+    if len(sys.argv) != 2:
+        print("Usage: python top5_ip.py <pcap_file>")
+        sys.exit(1)
 
-# Example call (replace with your actual file path):
-# plot_top5_destinations("path/to/your/file.pcapng")
+    pcap_file = sys.argv[1]
+    plot_top5_destinations(pcap_file)
 
 if __name__ == "__main__":
-# דוגמה לשימוש:
-    plot_top5_destinations(r"C:\Users\jhon\Downloads\Telegram Desktop\googleMEETS.pcap")
+    main()

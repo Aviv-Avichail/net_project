@@ -1,31 +1,50 @@
+import sys
+import os
 import matplotlib.pyplot as plt
 from scapy.all import rdpcap
 
+DEFAULT_BINS = 50
 
 def plot_packet_size_distribution(pcap_path):
     """
     Reads a pcap/pcapng file from the given path, extracts packet sizes,
     and plots a histogram of their distribution.
-
-    Parameters:
-        pcap_path (str): The file path to the pcap/pcapng file.
     """
-    # Read all packets from the file
-    packets = rdpcap(pcap_path)
+    if not os.path.isfile(pcap_path):
+        print(f"Error: File '{pcap_path}' does not exist.")
+        return
 
-    # Get the size (in bytes) of each packet
+    try:
+        packets = rdpcap(pcap_path)
+    except Exception as e:
+        print(f"Error reading pcap file '{pcap_path}': {e}")
+        return
+
+    if len(packets) == 0:
+        print("No packets found in the pcap file.")
+        return
+
     packet_sizes = [len(pkt) for pkt in packets]
 
-    # Plot histogram
     plt.figure(figsize=(10, 6))
-    plt.hist(packet_sizes, bins=50, edgecolor='black')
+    plt.hist(packet_sizes, bins=DEFAULT_BINS, edgecolor='black')
     plt.xlabel("Packet Size (bytes)")
     plt.ylabel("Number of Packets")
     plt.title("Distribution of Packet Sizes")
-    plt.grid(True)
+    plt.grid(True)  # Show grid lines
+    plt.tight_layout()
     plt.show()
 
+def main():
+    """
+    Usage: python Distribution_Pack_Sizes.py <pcap_file>
+    """
+    if len(sys.argv) != 2:
+        print("Usage: python Distribution_Pack_Sizes.py <pcap_file>")
+        sys.exit(1)
 
-# דוגמה לשימוש:
-#plot_packet_size_distribution(r"C:\Users\jhon\PycharmProjects\network_avi\youyube (2).pcap")
-# plot_packet_size_distribution("example.pcap")
+    pcap_file = sys.argv[1]
+    plot_packet_size_distribution(pcap_file)
+
+if __name__ == "__main__":
+    main()
