@@ -1,5 +1,8 @@
 # Network Analysis Project
-
+עידו כהן 322541327
+יהונתן עובדיה 206574931
+אביב אביחיל 215203951
+דוד בלוך 214857468
 This project contains a set of Python scripts designed for analyzing network traffic from `.pcap` or `.pcapng` files. Each script provides different insights, such as packet size distributions, packet timings, IP usage, and more. You can run the scripts individually or use the provided `main.py` to execute all analyses in one go.
 
 ## Overview of Scripts
