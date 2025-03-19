@@ -99,10 +99,10 @@ def plot_up_vs_down(upstream_bytes, downstream_bytes):
 
 def main():
     """
-    Usage: python fa.py <pcap_file>
+    Usage: python upstream_downstream.py <pcap_file>
     """
     if len(sys.argv) != 2:
-        print("Usage: python fa.py <pcap_file>")
+        print("Usage: python upstream_downstream.py <pcap_file>")
         sys.exit(1)
 
     pcap_file = sys.argv[1]
